@@ -40,7 +40,10 @@ export async function startServer(config: RuntimeConfig): Promise<ServerRuntime>
     .object({
       domain: z.string().min(1),
       operation: z.string().min(1).optional(),
-      payload: z.unknown().optional(),
+      payload: z
+        .union([z.record(z.string(), z.unknown()), z.string()])
+        .optional()
+        .describe('Operation payload as a JSON object. Use {} for operations that take no fields.'),
       responseMode: z.enum(['normalized', 'raw']).optional(),
       confirmToken: z.string().min(1).optional(),
     })
@@ -54,7 +57,7 @@ export async function startServer(config: RuntimeConfig): Promise<ServerRuntime>
       inputSchema: remnawaveApiToolInput,
     },
     async (args) => {
-      const result = await routeRemnawaveApiRequest(args, remnawaveApiClient);
+      const result = await routeRemnawaveApiRequest(coercePayloadArgument(args), remnawaveApiClient);
       const safeResult = toJsonSafe(result);
       return {
         content: [{ type: 'text', text: JSON.stringify(safeResult, null, 2) }],
@@ -89,6 +92,25 @@ export async function startServer(config: RuntimeConfig): Promise<ServerRuntime>
       logger.info('shutdown', { reason: 'runtime_closed' });
     },
   };
+}
+
+function coercePayloadArgument<T extends { payload?: unknown }>(args: T): T {
+  if (typeof args.payload !== 'string') {
+    return args;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(args.payload);
+  } catch {
+    return args;
+  }
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return args;
+  }
+
+  return { ...args, payload: parsed };
 }
 
 function toJsonSafe(value: unknown): unknown {
