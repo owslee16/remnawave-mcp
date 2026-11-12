@@ -27,12 +27,15 @@ vi.mock('@modelcontextprotocol/sdk/server/mcp.js', () => ({
   McpServer: class {
     registerTool = mocks.registerToolMock.mockImplementation(
       (
-        _name: string,
+        name: string,
         metadata: Record<string, unknown>,
         handler: (args: Record<string, unknown>) => Promise<{ structuredContent: Record<string, unknown>; isError?: boolean }>,
       ) => {
-        capturedMetadata = metadata;
-        capturedHandler = handler;
+        // remnawave_read / remnawave_write are registered after the primary tool; keep the primary capture.
+        if (name === 'remnawave_api') {
+          capturedMetadata = metadata;
+          capturedHandler = handler;
+        }
       },
     );
 

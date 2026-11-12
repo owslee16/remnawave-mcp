@@ -27,6 +27,8 @@ export const STABLE_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     title: 'Remnawave API',
     description: buildRemnawaveApiToolDiscoveryDescription(),
   },
+  { kind: 'tool', name: 'remnawave_read', title: 'Remnawave API (read)', description: 'Read-only entry: discovery, describe and read-classified operations.' },
+  { kind: 'tool', name: 'remnawave_write', title: 'Remnawave API (write)', description: 'Write entry: write-classified operations with confirm and preview/apply gates.' },
 ] as const;
 
 const PRIMARY_TOOL_DEFINITION: ToolDefinition = STABLE_TOOL_DEFINITIONS[0];

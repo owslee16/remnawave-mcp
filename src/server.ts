@@ -10,6 +10,7 @@ import { buildServerDefinition, registerDiscoverySurface, type DiscoveryManifest
 
 import { createRemnawaveApiClientAdapter } from './remnawave-api/client-adapter.js';
 import { routeRemnawaveApiRequest } from './remnawave-api/router.js';
+import { DEFAULT_OPERATION_REGISTRY } from './remnawave-api/registry.js';
 export interface ServerRuntime {
   readonly close: () => Promise<void>;
   readonly discovery: DiscoveryManifest;
@@ -65,6 +66,53 @@ export async function startServer(config: RuntimeConfig): Promise<ServerRuntime>
         ...(isCompactErrorEnvelope(safeResult) ? { isError: true } : {}),
       };
     },
+  );
+  // Platform split (ai_agents, 2026-10-28): the same router behind two tools so an MCP client can grant reads
+  // without a confirmation gate and keep writes behind one (readOnlyHint annotations). Discovery and describe
+  // calls (no payload) are allowed on both; executing a write-classified operation through remnawave_read is refused.
+  const runTool = async (args: z.infer<typeof remnawaveApiToolInput>, readOnly: boolean) => {
+    const coerced = coercePayloadArgument(args);
+    if (readOnly && coerced.operation && Object.hasOwn(coerced, 'payload')) {
+      const meta = DEFAULT_OPERATION_REGISTRY.describeOperation(coerced.domain, coerced.operation);
+      if (meta === null || meta.write) {
+        const safeResult = {
+          error: {
+            code: 'READ_ONLY_TOOL',
+            kind: 'validation',
+            message: `remnawave_read executes read operations only; ${coerced.domain}.${coerced.operation} is a write operation — use remnawave_write.`,
+            retryable: false,
+          },
+        };
+        return { content: [{ type: 'text' as const, text: JSON.stringify(safeResult, null, 2) }], structuredContent: safeResult, isError: true };
+      }
+    }
+    const result = await routeRemnawaveApiRequest(coerced, remnawaveApiClient);
+    const safeResult = toJsonSafe(result);
+    return {
+      content: [{ type: 'text' as const, text: JSON.stringify(safeResult, null, 2) }],
+      structuredContent: asStructuredContent(safeResult),
+      ...(isCompactErrorEnvelope(safeResult) ? { isError: true } : {}),
+    };
+  };
+  mcpServer.registerTool(
+    'remnawave_read',
+    {
+      title: 'Remnawave API (read)',
+      description: 'Remnawave reads only: domain only to discover operations, domain + operation to describe one, domain + operation + payload to execute a read-classified operation. Writes are refused.',
+      inputSchema: remnawaveApiToolInput,
+      annotations: { readOnlyHint: true, openWorldHint: true },
+    },
+    async (args) => runTool(args, true),
+  );
+  mcpServer.registerTool(
+    'remnawave_write',
+    {
+      title: 'Remnawave API (write)',
+      description: 'Remnawave writes: domain + operation + payload for write-classified operations (confirm and preview/apply tokens apply). Reads work here too.',
+      inputSchema: remnawaveApiToolInput,
+      annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
+    },
+    async (args) => runTool(args, false),
   );
   const transport = new StdioServerTransport();
   transport.onclose = () => {
