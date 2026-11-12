@@ -605,9 +605,21 @@ function normalizeHwidCountEntry(
   };
 }
 
+// Remnawave 3.x dropped user UUIDs; the numeric id stands in for `uuid` so callers can pass it back to user operations.
+function userIdentifier(user: JsonRecord, path: string): string {
+  if (typeof user.uuid === 'string') {
+    return user.uuid;
+  }
+  if (typeof user.id === 'number' && Number.isFinite(user.id)) {
+    return String(user.id);
+  }
+  return getString(user.uuid, `${path}.uuid`);
+}
+
 function normalizeResolvedUser(user: JsonRecord, path: string): NormalizedResolvedUser {
   return {
-    uuid: getString(user.uuid, `${path}.uuid`),
+    uuid: userIdentifier(user, path),
+    ...(typeof user.uuid === 'string' ? {} : { id: getOptionalNumber(user.id) }),
     shortUuid: getString(user.shortUuid, `${path}.shortUuid`),
     username: getString(user.username, `${path}.username`),
   };
@@ -801,7 +813,8 @@ function normalizeUser(user: JsonRecord, path: string): NormalizedUser {
   });
 
   return {
-    uuid: getString(user.uuid, `${path}.uuid`),
+    uuid: userIdentifier(user, path),
+    ...(typeof user.uuid === 'string' ? {} : { id: getOptionalNumber(user.id) }),
     shortUuid: getString(user.shortUuid, `${path}.shortUuid`),
     username: getString(user.username, `${path}.username`),
     status: getUserStatus(user.status, `${path}.status`),

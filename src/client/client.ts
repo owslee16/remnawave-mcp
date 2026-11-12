@@ -23,6 +23,7 @@ import {
   normalizeUsersResponse,
 } from './normalize.js';
 import { RemnawaveApiError } from './errors.js';
+import { adaptRequestForV3, matchesUserLookup, parsePanelMajor, type HttpMethod, type PanelUserLookup } from './panel-compat.js';
 
 import type {
   NormalizedBillingHistoryResponse,
@@ -61,6 +62,11 @@ export interface RemnawaveClientOptions {
   readonly baseUrl: string;
   readonly apiToken: string;
   readonly fetch?: typeof globalThis.fetch;
+  /**
+   * Panel major version. A number pins it; 'auto' probes GET /api/system/metadata once and caches the answer.
+   * Omitted = legacy 2.x behaviour (no probe). Major >= 3 enables the request translation in panel-compat.ts.
+   */
+  readonly panelMajor?: number | 'auto';
 }
 
 const DEFAULT_HEADERS = {
@@ -148,11 +154,43 @@ export class RemnawaveClient {
   private readonly baseUrl: string;
   private readonly apiToken: string;
   private readonly fetchImpl: typeof globalThis.fetch;
+  private readonly panelMajorOption: number | 'auto' | undefined;
+  private panelMajorPromise: Promise<number> | null = null;
 
   public constructor(options: RemnawaveClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/+$/, '');
     this.apiToken = options.apiToken;
     this.fetchImpl = options.fetch ?? globalThis.fetch;
+    this.panelMajorOption = options.panelMajor;
+  }
+
+  /** Panel major version used for request translation (2 = legacy contract). */
+  public async getPanelMajor(): Promise<number> {
+    if (typeof this.panelMajorOption === 'number') {
+      return this.panelMajorOption;
+    }
+    if (this.panelMajorOption !== 'auto') {
+      return 2;
+    }
+    if (this.panelMajorPromise === null) {
+      const probe = this.rawRequestJson(ROUTES.metadata, 'GET').then((payload) => {
+        const response = payload !== null && typeof payload === 'object' ? (payload as Record<string, unknown>).response : undefined;
+        const version = response !== null && typeof response === 'object' ? (response as Record<string, unknown>).version : undefined;
+        const major = parsePanelMajor(version);
+        if (major === null) {
+          throw new Error('panel metadata has no version');
+        }
+        return major;
+      });
+      this.panelMajorPromise = probe;
+      // A failed probe is not cached: fall back to the legacy contract for this call and retry next time.
+      probe.catch(() => {
+        if (this.panelMajorPromise === probe) {
+          this.panelMajorPromise = null;
+        }
+      });
+    }
+    return this.panelMajorPromise.catch(() => 2);
   }
 
   public async getNodes(): Promise<NormalizedNodesResponse> {
@@ -796,7 +834,36 @@ export class RemnawaveClient {
     return this.requestJson(path, 'POST', body);
   }
 
-  private async requestJson(path: string, method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE', body?: unknown): Promise<unknown> {
+  private async requestJson(path: string, method: HttpMethod, body?: unknown): Promise<unknown> {
+    if (path === ROUTES.metadata || (await this.getPanelMajor()) < 3) {
+      return this.rawRequestJson(path, method, body);
+    }
+    const adapted = adaptRequestForV3({ method, path, ...(body === undefined ? {} : { body }) });
+    if (adapted.kind === 'user_lookup') {
+      return this.emulateUserLookup(adapted);
+    }
+    return this.rawRequestJson(adapted.path, adapted.method, adapted.body);
+  }
+
+  /** 3.x removed /api/users/by-{telegram-id,email,tag}; filter the list (contains-match) and keep exact hits. */
+  private async emulateUserLookup(lookup: PanelUserLookup): Promise<unknown> {
+    const pageSize = 1000;
+    const maxPages = 50;
+    const filters = encodeURIComponent(JSON.stringify([{ id: lookup.field, value: lookup.value }]));
+    const matches: unknown[] = [];
+    for (let page = 0; page < maxPages; page += 1) {
+      const payload = await this.rawRequestJson(`${ROUTES.users}?start=${page * pageSize}&size=${pageSize}&filters=${filters}`, 'GET');
+      const response = (payload as { response?: { users?: unknown[]; total?: number } } | null)?.response;
+      const users = Array.isArray(response?.users) ? response.users : [];
+      matches.push(...users.filter((user) => matchesUserLookup(user, lookup)));
+      if (users.length < pageSize || (page + 1) * pageSize >= (response?.total ?? 0)) {
+        break;
+      }
+    }
+    return { response: matches };
+  }
+
+  private async rawRequestJson(path: string, method: HttpMethod, body?: unknown): Promise<unknown> {
     const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
       method,
       headers: {
@@ -811,6 +878,11 @@ export class RemnawaveClient {
     if (!response.ok) {
       const message = extractErrorMessage(payload, response.statusText);
       throw new RemnawaveApiError(response.status, message, payload);
+    }
+
+    // 3.x answers many mutations with 202/204 and no body; keep the { response } envelope callers expect.
+    if (payload === null && (response.status === 202 || response.status === 204)) {
+      return { response: method === 'DELETE' ? { isDeleted: true } : { success: true, statusCode: response.status } };
     }
 
     return payload;

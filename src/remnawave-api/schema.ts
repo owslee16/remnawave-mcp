@@ -3,6 +3,7 @@ import { createRequire } from 'node:module';
 import { Ajv, type ErrorObject, type ValidateFunction } from 'ajv/dist/ajv.js';
 
 import { REMNAWAVE_OPENAPI_EXTRACT } from './generated/operations.js';
+import { isUserScopedOperation, relaxUserIdFormats } from './user-id-compat.js';
 import type { ValidationIssue } from './registry.js';
 
 export type SchemaPrimitiveType = 'string' | 'integer' | 'boolean' | 'string_array' | 'record' | 'record_array';
@@ -1822,7 +1823,8 @@ function getExtractedPayloadValidator(operationKey: string): ExtractedPayloadVal
     return extractedPayloadValidators.get(operationKey) ?? null;
   }
 
-  const schema = getExtractedPayloadSchema(operationKey);
+  const extractedSchema = getExtractedPayloadSchema(operationKey);
+  const schema = extractedSchema !== null && isUserScopedOperation(operationKey) ? relaxUserIdFormats(extractedSchema) : extractedSchema;
   const validator = schema === null ? null : { validate: ajv.compile(schema) };
   extractedPayloadValidators.set(operationKey, validator);
   return validator;

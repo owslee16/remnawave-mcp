@@ -35,6 +35,8 @@ export async function startServer(config: RuntimeConfig): Promise<ServerRuntime>
   const remnawaveClient = new RemnawaveClient({
     baseUrl: config.remnawaveBaseUrl,
     apiToken: config.remnawaveApiToken,
+    // Same binary serves 2.x and 3.x panels: detect the major once from /api/system/metadata.
+    panelMajor: 'auto',
   });
   const remnawaveApiClient = createRemnawaveApiClientAdapter(remnawaveClient);
   const remnawaveApiToolInput = z

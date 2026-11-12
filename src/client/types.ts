@@ -51,7 +51,10 @@ export interface NormalizedNodesResponse {
 }
 
 export interface NormalizedUser {
+  /** User UUID on 2.x; the numeric id as a string on 3.x (which has no user UUIDs). */
   readonly uuid: string;
+  /** Numeric user id (present on 2.x responses too; the only identifier on 3.x). */
+  readonly id?: number | null;
   readonly shortUuid: string;
   readonly username: string;
   readonly status: UserStatus;
@@ -81,6 +84,7 @@ export interface NormalizedUsersResponse {
 
 export interface NormalizedResolvedUser {
   readonly uuid: string;
+  readonly id?: number | null;
   readonly shortUuid: string;
   readonly username: string;
 }

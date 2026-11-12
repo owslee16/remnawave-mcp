@@ -16,6 +16,7 @@ import {
   type PreviewApplyChange,
   type PreviewApplyTokenFailure,
 } from './preview-apply-cache.js';
+import { applyUserIdAliases } from './user-id-compat.js';
 import {
   createRemnawaveApiErrorResponse,
   normalizeRemnawaveApiErrorMessage,
@@ -68,7 +69,7 @@ export async function routeRemnawaveApiRequest(
   const operationValue = typeof request.operation === 'string' ? request.operation.trim() : '';
   const responseModeValue = request.responseMode === undefined ? 'normalized' : request.responseMode;
   const hasPayloadField = Object.hasOwn(request, 'payload');
-  const payloadValue = hasPayloadField ? request.payload : undefined;
+  const payloadValue = hasPayloadField ? applyUserIdAliases(domainValue, operationValue, request.payload) : undefined;
 
   try {
     return await routeRemnawaveApiRequestUnsafe({
