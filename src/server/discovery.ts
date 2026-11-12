@@ -1,4 +1,4 @@
-import type { RuntimeConfig } from '../runtime/config.js';
+import { resolveRemnawaveRouteMode, type RuntimeConfig } from '../runtime/config.js';
 import { buildRemnawaveApiToolDiscoveryDescription } from '../remnawave-api/contract.js';
 import { RuntimeConfigError } from '../runtime/errors.js';
 
@@ -27,6 +27,9 @@ export const STABLE_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     title: 'Remnawave API',
     description: buildRemnawaveApiToolDiscoveryDescription(),
   },
+  // Fork (split read/write): same router behind a read-only entry and a write entry.
+  { kind: 'tool', name: 'remnawave_read', title: 'Remnawave API (read)', description: 'Read-only entry: discovery, describe and read operations; writes are refused.' },
+  { kind: 'tool', name: 'remnawave_write', title: 'Remnawave API (write)', description: 'Write entry: write operations behind confirmation tokens; reads work too.' },
 ] as const;
 
 const PRIMARY_TOOL_DEFINITION: ToolDefinition = STABLE_TOOL_DEFINITIONS[0];
@@ -39,10 +42,20 @@ export function buildDiscoveryManifest(config: RuntimeConfig): DiscoveryManifest
   ensureDiscoveryGating(config);
 
   return {
-    tools: config.startupDiagnostics.remnawaveVersion.value === '3.4.4'
-      ? [{ ...PRIMARY_TOOL_DEFINITION, description: 'Remnawave 3.4.4 API. Send domain to discover operations, domain and operation to describe, and add payload to execute. Writes require a confirmation token.' }]
-      : [PRIMARY_TOOL_DEFINITION],
+    // remnawave_read / remnawave_write are registered next to it (server.ts); the manifest keeps the primary tool only.
+    tools: [primaryToolDefinition(config)],
   };
+}
+
+function primaryToolDefinition(config: RuntimeConfig): ToolDefinition {
+  const routeMode = resolveRemnawaveRouteMode(config);
+  if (routeMode === 'openapi-3.4.4') {
+    return { ...PRIMARY_TOOL_DEFINITION, description: 'Remnawave 3.4.4 API. Send domain to discover operations, domain and operation to describe, and add payload to execute. Writes require a confirmation token.' };
+  }
+  if (routeMode === 'auto') {
+    return { ...PRIMARY_TOOL_DEFINITION, description: 'Remnawave API with the contract picked from the panel version (/api/system/metadata: 2.x -> 2.8.1, 3.x -> 3.4.4). Send domain to discover operations, domain and operation to describe, and add payload to execute. Writes require a confirmation token.' };
+  }
+  return PRIMARY_TOOL_DEFINITION;
 }
 
 export function buildServerDefinition(config: RuntimeConfig): ServerDefinition {

@@ -70,7 +70,7 @@ describe('mcp runtime protocol', () => {
     const [primaryTool] = tools.tools;
 
     expect(primaryTool?.name).toBe('remnawave_api');
-    expect(toolNames).toEqual(['remnawave_api']);
+    expect(toolNames).toEqual(['remnawave_api', 'remnawave_read', 'remnawave_write']);
     expect(toolNames).toEqual(expect.arrayContaining(discoveryManifest.tools.map((tool) => tool.name)));
 
     const remnawaveApi = tools.tools.find((tool) => tool.name === 'remnawave_api');
