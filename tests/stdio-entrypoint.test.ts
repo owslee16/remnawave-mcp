@@ -154,7 +154,7 @@ describe('stdio entrypoint', () => {
     const child = startEntrypoint({
       REMNAWAVE_BASE_URL: 'https://panel.example.test',
       REMNAWAVE_API_TOKEN: 'token-value',
-      REMNAWAVE_VERSION: '3.0.0',
+      REMNAWAVE_VERSION: '4.0.0',
       LOG_LEVEL: 'debug',
     });
 

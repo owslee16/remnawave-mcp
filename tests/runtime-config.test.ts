@@ -114,8 +114,8 @@ describe('loadRuntimeConfig', () => {
       expectedValue: '3.3.2-beta.1',
     },
     { label: '2.6.4', rawValue: '2.6.4', expectedStatus: 'unsupported', expectedValue: '2.6.4' },
-    { label: '2.7.4', rawValue: '2.7.4', expectedStatus: 'unsupported', expectedValue: '2.7.4' },
-    { label: '3.0.0', rawValue: '3.0.0', expectedStatus: 'unsupported', expectedValue: '3.0.0' },
+    { label: '2.9.0', rawValue: '2.9.0', expectedStatus: 'unsupported', expectedValue: '2.9.0' },
+    { label: '4.0.0', rawValue: '4.0.0', expectedStatus: 'unsupported', expectedValue: '4.0.0' },
   ] as const;
 
   test.each(blockedRemnawaveVersions)(
@@ -143,13 +143,13 @@ describe('loadRuntimeConfig', () => {
     const config = loadRuntimeConfig({
       REMNAWAVE_BASE_URL: 'https://panel.example.test',
       REMNAWAVE_API_TOKEN: 'token-value',
-      REMNAWAVE_VERSION: '3.0.0',
+      REMNAWAVE_VERSION: '4.0.0',
     });
 
     expect(config.startupDiagnostics.remnawaveVersion).toEqual({
       supported: false,
       status: 'unsupported',
-      value: '3.0.0',
+      value: '4.0.0',
       supportedRange: supportedRemnawaveRange,
     });
     expect(config.startupDiagnostics.capabilities).toEqual({

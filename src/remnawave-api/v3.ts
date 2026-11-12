@@ -1,5 +1,6 @@
 import { buildTier3ConfirmationState } from './risk.js';
 import openApiDocument from './openapi/remnawave-openapi-3.4.4.json' with { type: 'json' };
+import openApiDocument281 from './openapi/remnawave-openapi-2.8.1.json' with { type: 'json' };
 
 interface Parameter {
   readonly name: string;
@@ -38,33 +39,48 @@ interface V3ClientOptions {
   readonly fetch?: typeof globalThis.fetch;
 }
 
-const document = openApiDocument as unknown as { readonly paths: Record<string, Record<string, ApiOperation>> };
+interface OpenApiDocument {
+  readonly paths: Record<string, Record<string, ApiOperation>>;
+}
+
+/** Pass-through router over one pinned Remnawave OpenAPI document (fork: shared by the 3.4.4 and 2.8.1 contracts). */
+export interface OpenApiRouter {
+  readonly version: string;
+  /** null when the operation is unknown; write = any non-GET method. */
+  readonly describeAccess: (domain: string, operation: string) => { readonly write: boolean } | null;
+  readonly route: (request: V3Request, client: V3ClientOptions) => Promise<unknown>;
+}
+
 const methods = new Set(['get', 'post', 'put', 'patch', 'delete']);
 const excludedPrefixes = ['/api/auth', '/api/tokens', '/api/sub/', '/api/node-plugins', '/api/ip-control', '/api/keygen', '/api/system/tools/', '/api/remnawave-settings'];
-const extractedOperations: readonly V3Operation[] = Object.entries(document.paths).flatMap(([path, pathItem]) =>
-  Object.entries(pathItem).flatMap(([method, spec]) => {
-    if (!methods.has(method) || excludedPrefixes.some((prefix) => path.startsWith(prefix))) return [];
-    const domain = path.split('/')[2]?.replaceAll('-', '_') ?? 'unknown';
-    const operation = snakeCase(spec.operationId.split('_').slice(1).join('_'));
-    return [{ domain, operation, method, path, spec }];
-  }),
-);
-const counts = new Map<string, number>();
-for (const entry of extractedOperations) {
-  const key = `${entry.domain}.${entry.operation}`;
-  counts.set(key, (counts.get(key) ?? 0) + 1);
-}
-const operations: readonly V3Operation[] = extractedOperations.map((entry) => ({
-  ...entry,
-  operation: (counts.get(`${entry.domain}.${entry.operation}`) ?? 0) > 1
-    ? `${entry.operation}_${entry.path.split('/')[3] ?? entry.method}`
-    : entry.operation,
-}));
-const operationNames = new Set<string>();
-for (const entry of operations) {
-  const key = `${entry.domain}.${entry.operation}`;
-  if (operationNames.has(key)) throw new Error(`Duplicate Remnawave 3.4.4 operation: ${key}`);
-  operationNames.add(key);
+
+function extractOperations(document: OpenApiDocument, version: string): readonly V3Operation[] {
+  const extractedOperations: readonly V3Operation[] = Object.entries(document.paths).flatMap(([path, pathItem]) =>
+    Object.entries(pathItem).flatMap(([method, spec]) => {
+      if (!methods.has(method) || excludedPrefixes.some((prefix) => path.startsWith(prefix))) return [];
+      const domain = path.split('/')[2]?.replaceAll('-', '_') ?? 'unknown';
+      const operation = snakeCase(spec.operationId.split('_').slice(1).join('_'));
+      return [{ domain, operation, method, path, spec }];
+    }),
+  );
+  const counts = new Map<string, number>();
+  for (const entry of extractedOperations) {
+    const key = `${entry.domain}.${entry.operation}`;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  const operations: readonly V3Operation[] = extractedOperations.map((entry) => ({
+    ...entry,
+    operation: (counts.get(`${entry.domain}.${entry.operation}`) ?? 0) > 1
+      ? `${entry.operation}_${entry.path.split('/')[3] ?? entry.method}`
+      : entry.operation,
+  }));
+  const operationNames = new Set<string>();
+  for (const entry of operations) {
+    const key = `${entry.domain}.${entry.operation}`;
+    if (operationNames.has(key)) throw new Error(`Duplicate Remnawave ${version} operation: ${key}`);
+    operationNames.add(key);
+  }
+  return operations;
 }
 
 function snakeCase(value: string): string {
@@ -94,7 +110,31 @@ function describe(entry: V3Operation): Record<string, unknown> {
   };
 }
 
+export function createOpenApiRouter(document: OpenApiDocument, version: string): OpenApiRouter {
+  const operations = extractOperations(document, version);
+  return {
+    version,
+    describeAccess: (domain, operation) => {
+      const entry = operations.find((item) => item.domain === domain && item.operation === operation);
+      return entry === undefined ? null : { write: entry.method !== 'get' };
+    },
+    route: (request, client) => routeOpenApiRequest(operations, version, request, client),
+  };
+}
+
+export const REMNAWAVE_V3_ROUTER = createOpenApiRouter(openApiDocument as unknown as OpenApiDocument, '3.4.4');
+export const REMNAWAVE_V2_ROUTER = createOpenApiRouter(openApiDocument281 as unknown as OpenApiDocument, '2.8.1');
+
 export async function routeRemnawaveV3Request(request: V3Request, client: V3ClientOptions): Promise<unknown> {
+  return REMNAWAVE_V3_ROUTER.route(request, client);
+}
+
+async function routeOpenApiRequest(
+  operations: readonly V3Operation[],
+  version: string,
+  request: V3Request,
+  client: V3ClientOptions,
+): Promise<unknown> {
   const domain = typeof request.domain === 'string' ? request.domain.trim() : '';
   const operationName = typeof request.operation === 'string' ? request.operation.trim() : '';
   if (!domain) return error('DOMAIN_REQUIRED', 'domain is required.');
@@ -105,7 +145,7 @@ export async function routeRemnawaveV3Request(request: V3Request, client: V3Clie
   if (domainOperations.length === 0) return error('UNSUPPORTED_DOMAIN', `Unsupported domain: ${domain}.`);
   if (!operationName) {
     if (request.payload !== undefined) return error('OPERATION_REQUIRED', 'operation is required when payload is provided.');
-    return { domain, version: '3.4.4', operations: domainOperations.map((entry) => ({ operation: entry.operation, method: entry.method.toUpperCase(), path: entry.path, write: entry.method !== 'get' })) };
+    return { domain, version, operations: domainOperations.map((entry) => ({ operation: entry.operation, method: entry.method.toUpperCase(), path: entry.path, write: entry.method !== 'get' })) };
   }
   const entry = domainOperations.find((item) => item.operation === operationName);
   if (!entry) return error('UNSUPPORTED_OPERATION', `Unsupported operation: ${domain}.${operationName}.`);
@@ -171,7 +211,12 @@ export async function routeRemnawaveV3Request(request: V3Request, client: V3Clie
     if (text) {
       try { result = JSON.parse(text); } catch { result = text; }
     }
-    if (!response.ok) return error('UPSTREAM_ERROR', 'Remnawave API rejected the request.', response.status);
+    if (!response.ok) {
+      const rejected = error('UPSTREAM_ERROR', 'Remnawave API rejected the request.', response.status);
+      // Fork: keep the panel's own validation message (e.g. which field is wrong); it carries no credentials.
+      const upstreamMessage = isObject(result) && typeof result.message === 'string' ? result.message : null;
+      return upstreamMessage === null ? rejected : { error: { ...(rejected.error as Record<string, unknown>), upstreamMessage } };
+    }
     return result;
   } catch {
     return { error: { code: 'UPSTREAM_UNAVAILABLE', kind: 'upstream', message: 'Remnawave API request failed.', retryable: true } };

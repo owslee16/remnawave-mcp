@@ -21,8 +21,8 @@ describe('discovery bootstrap', () => {
     { label: 'v3.3.2', rawValue: 'v3.3.2', expectedCode: 'REMNAWAVE_VERSION_UNSUPPORTED' },
     { label: '3.3.2-beta.1', rawValue: '3.3.2-beta.1', expectedCode: 'REMNAWAVE_VERSION_UNSUPPORTED' },
     { label: '2.6.4', rawValue: '2.6.4', expectedCode: 'REMNAWAVE_VERSION_UNSUPPORTED' },
-    { label: '2.7.4', rawValue: '2.7.4', expectedCode: 'REMNAWAVE_VERSION_UNSUPPORTED' },
-    { label: '3.0.0', rawValue: '3.0.0', expectedCode: 'REMNAWAVE_VERSION_UNSUPPORTED' },
+    { label: '2.9.0', rawValue: '2.9.0', expectedCode: 'REMNAWAVE_VERSION_UNSUPPORTED' },
+    { label: '4.0.0', rawValue: '4.0.0', expectedCode: 'REMNAWAVE_VERSION_UNSUPPORTED' },
   ] as const;
 
   test('lists only remnawave_api as the single discovery tool', () => {
@@ -75,7 +75,7 @@ describe('discovery bootstrap', () => {
     const config = loadRuntimeConfig({
       REMNAWAVE_BASE_URL: 'https://panel.example.test',
       REMNAWAVE_API_TOKEN: 'token-value',
-      REMNAWAVE_VERSION: '3.0.0',
+      REMNAWAVE_VERSION: '4.0.0',
     });
 
     expect(() => buildDiscoveryManifest(config)).toThrowError(RuntimeConfigError);

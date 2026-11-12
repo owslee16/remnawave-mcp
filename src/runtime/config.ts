@@ -29,7 +29,20 @@ export interface RuntimeConfig {
 }
 
 const SUPPORTED_REMNAWAVE_VERSIONS = new Set(['3.3.2', '3.4.4']);
+// Fork (whoiam): one binary serves a 2.8.x panel and a 3.4.x panel. These values are accepted as a gate only;
+// the contract is picked per panel from GET /api/system/metadata (2.x -> pinned 2.8.1 OpenAPI, 3.x -> pinned 3.4.4).
+const AUTO_DETECT_REMNAWAVE_VERSION = /^(auto|2\.[78]\.\d+|3\.\d+\.\d+)$/;
 const SUPPORTED_REMNAWAVE_RANGE = '3.3.2, 3.4.4';
+
+export type RemnawaveRouteMode = 'legacy-3.3.2' | 'openapi-3.4.4' | 'auto';
+
+/** Which router serves the tools: the exact upstream pins keep upstream behaviour, anything else probes the panel. */
+export function resolveRemnawaveRouteMode(config: RuntimeConfig): RemnawaveRouteMode {
+  const value = config.startupDiagnostics.remnawaveVersion.value;
+  if (value === '3.3.2') return 'legacy-3.3.2';
+  if (value === '3.4.4') return 'openapi-3.4.4';
+  return 'auto';
+}
 
 export function loadRuntimeConfig(env: NodeJS.ProcessEnv): RuntimeConfig {
   const remnawaveBaseUrl = readRequiredEnv(env, 'REMNAWAVE_BASE_URL');
@@ -99,7 +112,7 @@ function classifyRemnawaveVersion(rawValue: string | undefined): StartupDiagnost
     };
   }
 
-  if (SUPPORTED_REMNAWAVE_VERSIONS.has(value)) {
+  if (SUPPORTED_REMNAWAVE_VERSIONS.has(value) || AUTO_DETECT_REMNAWAVE_VERSION.test(value)) {
     return {
       supported: true,
       status: 'supported',
